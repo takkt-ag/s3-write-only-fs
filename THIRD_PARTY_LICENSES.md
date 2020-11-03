@@ -4707,7 +4707,7 @@ SOFTWARE.
 
 #### Used by
 
-- [aho-corasick 0.7.14]( https://github.com/BurntSushi/aho-corasick )
+- [aho-corasick 0.7.15]( https://github.com/BurntSushi/aho-corasick )
 - [memchr 2.3.4]( https://github.com/BurntSushi/rust-memchr )
 - [termcolor 1.1.0]( https://github.com/BurntSushi/termcolor )
 
