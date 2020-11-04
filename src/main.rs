@@ -14,16 +14,19 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#![deny(unused_must_use)]
+
 mod id_generator;
 mod s3_write_only_filesystem;
 mod upload;
 
 use crate::s3_write_only_filesystem::S3WriteOnlyFilesystem;
+use anyhow::Result;
 use rusoto_core::Region;
 use rusoto_s3::S3Client;
 use std::{env, ffi::OsStr};
 
-fn main() {
+fn main() -> Result<()> {
     let s3 = S3Client::new(Region::EuCentral1);
 
     env_logger::init();
@@ -33,6 +36,8 @@ fn main() {
         .iter()
         .map(|o| o.as_ref())
         .collect::<Vec<&OsStr>>();
-    let s3_write_only_filesystem = S3WriteOnlyFilesystem::new(s3, s3_bucket.into_string().unwrap());
+    let s3_write_only_filesystem = S3WriteOnlyFilesystem::new(s3, s3_bucket.into_string().unwrap())?;
     fuse::mount(s3_write_only_filesystem, mountpoint, &options).unwrap();
+
+    Ok(())
 }

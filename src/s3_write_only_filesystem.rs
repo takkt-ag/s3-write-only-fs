@@ -15,11 +15,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{id_generator::IdGenerator, upload::Upload};
+use anyhow::{Context, Result};
 use fuse::{
     FileAttr, FileType, Filesystem, ReplyAttr, ReplyCreate, ReplyDirectory, ReplyEmpty, ReplyEntry,
     ReplyOpen, ReplyWrite, Request,
 };
-use libc::{EACCES, ENOENT};
+use libc::{EACCES, EIO, ENOENT};
 use rusoto_s3::S3Client;
 use std::{
     collections::HashMap,
@@ -64,6 +65,25 @@ impl Node {
             upload: Mutex::new(Upload::new(bucket, key)),
         }
     }
+
+    fn write(&mut self, runtime: &mut Runtime, s3: &S3Client, data: &[u8]) -> Result<()> {
+        let mut upload = std::mem::take(&mut self.upload)
+            .into_inner()
+            .context("failed to lock node.upload")?;
+        upload = upload.write(runtime, s3, data)?;
+        let _ = std::mem::replace(&mut self.upload, Mutex::new(upload));
+
+        Ok(())
+    }
+
+    fn finish(&mut self, runtime: &mut Runtime, s3: &S3Client) -> Result<()> {
+        let upload = std::mem::take(&mut self.upload)
+            .into_inner()
+            .context("failed to lock node.upload")?;
+        upload.finish(runtime, s3)?;
+
+        Ok(())
+    }
 }
 
 pub(crate) struct S3WriteOnlyFilesystem {
@@ -78,7 +98,7 @@ pub(crate) struct S3WriteOnlyFilesystem {
 }
 
 impl S3WriteOnlyFilesystem {
-    pub(crate) fn new(s3: S3Client, s3_bucket: String) -> S3WriteOnlyFilesystem {
+    pub(crate) fn new(s3: S3Client, s3_bucket: String) -> Result<S3WriteOnlyFilesystem> {
         let now = SystemTime::now();
         let root_directory_fileattr = FileAttr {
             ino: ROOT_DIRECTORY_INODE,
@@ -99,16 +119,16 @@ impl S3WriteOnlyFilesystem {
 
         let id_generator = Arc::new(IdGenerator::new(10));
         let nodes = Arc::new(Mutex::new(HashMap::new()));
-        let runtime = Runtime::new().expect("failed to create runtime");
+        let runtime = Runtime::new()?;
 
-        S3WriteOnlyFilesystem {
+        Ok(S3WriteOnlyFilesystem {
             root_directory_fileattr,
             id_generator,
             nodes,
             s3,
             s3_bucket,
             runtime,
-        }
+        })
     }
 }
 
@@ -123,12 +143,18 @@ impl Filesystem for S3WriteOnlyFilesystem {
             ROOT_DIRECTORY_INODE => reply.attr(&ROOT_DIRECTORY_TTL, &self.root_directory_fileattr),
             _ => {
                 eprintln!("getattr(ino={})", ino);
-                let nodes = self.nodes.lock().expect("failed to get nodes");
-                if let Some(node) = nodes.get(&ino) {
-                    reply.attr(&TTL, &node.file_attr);
-                } else {
-                    reply.error(ENOENT);
+                match self.nodes.lock() {
+                    Ok(nodes) => {
+                        if let Some(node) = nodes.get(&ino) {
+                            reply.attr(&TTL, &node.file_attr);
+                            return;
+                        }
+                    }
+                    Err(_) => {
+                        // TODO: log error
+                    }
                 }
+                reply.error(ENOENT);
             }
         }
     }
@@ -150,12 +176,19 @@ impl Filesystem for S3WriteOnlyFilesystem {
         _flags: Option<u32>,
         reply: ReplyAttr,
     ) {
-        let nodes = self.nodes.lock().expect("failed to get nodes");
-        if let Some(node) = nodes.get(&ino) {
-            reply.attr(&TTL, &node.file_attr);
-        } else {
-            reply.error(ENOENT);
+        match self.nodes.lock() {
+            Ok(nodes) => {
+                if let Some(node) = nodes.get(&ino) {
+                    reply.attr(&TTL, &node.file_attr);
+                    return;
+                }
+            }
+            Err(_) => {
+                // TODO: log error
+            }
         }
+
+        reply.error(ENOENT);
     }
 
     fn mkdir(
@@ -170,12 +203,19 @@ impl Filesystem for S3WriteOnlyFilesystem {
     }
 
     fn open(&mut self, _req: &Request<'_>, ino: u64, _flags: u32, reply: ReplyOpen) {
-        let nodes = self.nodes.lock().expect("failed to get nodes");
-        if let Some(_) = nodes.get(&ino) {
-            reply.opened(ino, 0);
-        } else {
-            reply.error(ENOENT);
+        match self.nodes.lock() {
+            Ok(nodes) => {
+                if nodes.get(&ino).is_some() {
+                    reply.opened(ino, 0);
+                    return;
+                }
+            }
+            Err(_) => {
+                // TODO: log error
+            }
         }
+
+        reply.error(ENOENT);
     }
 
     fn write(
@@ -196,17 +236,27 @@ impl Filesystem for S3WriteOnlyFilesystem {
         //     data.len(),
         //     _flags
         // );
-        let mut nodes = self.nodes.lock().expect("failed to get nodes");
-        if let Some(node) = nodes.deref_mut().get_mut(&ino) {
-            let mut upload = std::mem::take(&mut node.upload)
-                .into_inner()
-                .expect("failed to get node upload");
-            upload = upload.write(&mut self.runtime, &self.s3, data);
-            let _ = std::mem::replace(&mut node.upload, Mutex::new(upload));
-            reply.written(data.len() as u32);
-        } else {
-            reply.error(ENOENT);
+        match self.nodes.lock() {
+            Ok(mut nodes) => {
+                if let Some(node) = nodes.deref_mut().get_mut(&ino) {
+                    match node.write(&mut self.runtime, &self.s3, data) {
+                        Ok(_) => {
+                            reply.written(data.len() as u32);
+                        }
+                        Err(_) => {
+                            // TODO: log error
+                            reply.error(EIO);
+                        }
+                    }
+                    return;
+                }
+            }
+            Err(_) => {
+                // TODO: log error
+            }
         }
+
+        reply.error(ENOENT);
     }
 
     fn flush(
@@ -235,16 +285,27 @@ impl Filesystem for S3WriteOnlyFilesystem {
             "release(ino={}, fh={}, flags={}, lock_owner={}, flush={})",
             ino, _fh, _flags, _lock_owner, _flush
         );
-        let mut nodes = self.nodes.lock().expect("failed to get nodes");
-        if let Some(mut node) = nodes.remove(&ino) {
-            let upload = std::mem::take(&mut node.upload)
-                .into_inner()
-                .expect("failed to get node upload");
-            upload.finish(&mut self.runtime, &self.s3);
-            reply.ok();
-        } else {
-            reply.error(ENOENT);
+        match self.nodes.lock() {
+            Ok(mut nodes) => {
+                if let Some(mut node) = nodes.remove(&ino) {
+                    match node.finish(&mut self.runtime, &self.s3) {
+                        Ok(_) => {
+                            reply.ok();
+                        }
+                        Err(_) => {
+                            // TODO: log error
+                            reply.error(EIO);
+                        }
+                    }
+                    return;
+                }
+            }
+            Err(_) => {
+                // TODO: log error
+            }
         }
+
+        reply.error(ENOENT);
     }
 
     fn opendir(&mut self, _req: &Request<'_>, ino: u64, _flags: u32, reply: ReplyOpen) {
@@ -290,13 +351,18 @@ impl Filesystem for S3WriteOnlyFilesystem {
         }
         eprintln!("create(name={:?})", name);
 
-        let id = self.id_generator.next();
-        let filename = name.to_string_lossy().into_owned();
-        let node = Node::new(id, &self.s3_bucket, &filename);
-
-        reply.created(&TTL, &node.file_attr, GENERATION, id, 0);
-
-        let mut nodes = self.nodes.lock().expect("failed to get nodes");
-        nodes.insert(id, node);
+        match self.nodes.lock() {
+            Ok(mut nodes) => {
+                let id = self.id_generator.next();
+                let filename = name.to_string_lossy().into_owned();
+                let node = Node::new(id, &self.s3_bucket, &filename);
+                reply.created(&TTL, &node.file_attr, GENERATION, id, 0);
+                nodes.insert(id, node);
+            }
+            Err(_) => {
+                // TODO: log error
+                reply.error(EACCES);
+            }
+        }
     }
 }

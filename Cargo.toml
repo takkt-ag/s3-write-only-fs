@@ -16,6 +16,7 @@ name = "s3-write-only-fs"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = "1.0.34"
 env_logger = "0.8.1"
 fuse = { git = "https://github.com/zargony/fuse-rs/", rev = "39fde4a5c47ce370d228ac190f950bd835db7f47" }
 libc = "0.2.80"

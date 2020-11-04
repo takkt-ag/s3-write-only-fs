@@ -15,6 +15,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::id_generator::IdGenerator;
+use anyhow::{anyhow, Result};
 use rusoto_s3::{
     CompleteMultipartUploadRequest, CompletedMultipartUpload, CompletedPart,
     CreateMultipartUploadRequest, PutObjectRequest, S3Client, UploadPartRequest, S3,
@@ -61,16 +62,15 @@ impl Upload {
         s3: &S3Client,
         bucket: &str,
         key: &str,
-    ) -> String {
+    ) -> Result<String> {
         runtime
             .block_on(s3.create_multipart_upload(CreateMultipartUploadRequest {
                 bucket: bucket.to_owned(),
                 key: key.to_owned(),
                 ..Default::default()
-            }))
-            .expect("failed to create multipart upload")
+            }))?
             .upload_id
-            .expect("upload id was unset")
+            .ok_or_else(|| anyhow!("upload id was unset after multipart upload was created"))
     }
 
     fn upload_part(
@@ -81,7 +81,7 @@ impl Upload {
         upload_id: &str,
         part_number: i64,
         body: Vec<u8>,
-    ) -> CompletedPart {
+    ) -> Result<CompletedPart> {
         let e_tag = runtime
             .block_on(s3.upload_part(UploadPartRequest {
                 bucket: bucket.to_owned(),
@@ -90,19 +90,18 @@ impl Upload {
                 body: Some(body.into()),
                 part_number,
                 ..Default::default()
-            }))
-            .expect("failed to upload multipart")
+            }))?
             .e_tag
-            .expect("uploaded multipart did not return e-tag");
+            .ok_or_else(|| anyhow!("uploaded multipart did not return e-tag"))?;
 
-        CompletedPart {
+        Ok(CompletedPart {
             e_tag: Some(e_tag),
             part_number: Some(part_number),
-        }
+        })
     }
 
-    pub(crate) fn write(self, runtime: &mut Runtime, s3: &S3Client, data: &[u8]) -> Upload {
-        match self {
+    pub(crate) fn write(self, runtime: &mut Runtime, s3: &S3Client, data: &[u8]) -> Result<Upload> {
+        Ok(match self {
             Self::Regular {
                 bucket,
                 key,
@@ -112,7 +111,7 @@ impl Upload {
                 if current_buffer.len() >= MULTIPART_MINIMUM_PART_SIZE {
                     let multipart_part_number_generator = Arc::new(IdGenerator::new(1));
                     let multipart_upload_id: String =
-                        Self::create_multipart_upload(runtime, s3, &bucket, &key);
+                        Self::create_multipart_upload(runtime, s3, &bucket, &key)?;
                     let completed_part: CompletedPart = Self::upload_part(
                         runtime,
                         s3,
@@ -121,7 +120,7 @@ impl Upload {
                         &multipart_upload_id,
                         multipart_part_number_generator.next() as i64,
                         current_buffer,
-                    );
+                    )?;
                     Self::Multipart {
                         bucket,
                         key,
@@ -156,7 +155,7 @@ impl Upload {
                         &multipart_upload_id,
                         multipart_part_number_generator.next() as i64,
                         current_buffer,
-                    );
+                    )?;
                     parts.push(completed_part);
                     current_buffer = vec![];
                 }
@@ -170,26 +169,25 @@ impl Upload {
                 }
             }
             any => any,
-        }
+        })
     }
 
-    pub(crate) fn finish(self, runtime: &mut Runtime, s3: &S3Client) {
+    pub(crate) fn finish(self, runtime: &mut Runtime, s3: &S3Client) -> Result<()> {
         match self {
-            Self::Empty => {}
+            Self::Empty => Ok(()),
             Self::Regular {
                 bucket,
                 key,
                 current_buffer,
-            } => {
-                runtime
-                    .block_on(s3.put_object(PutObjectRequest {
-                        bucket,
-                        key,
-                        body: Some(current_buffer.into()),
-                        ..Default::default()
-                    }))
-                    .expect("failed to put object");
-            }
+            } => runtime
+                .block_on(s3.put_object(PutObjectRequest {
+                    bucket,
+                    key,
+                    body: Some(current_buffer.into()),
+                    ..Default::default()
+                }))
+                .map(|_| ())
+                .map_err(Into::into),
             Self::Multipart {
                 bucket,
                 key,
@@ -207,7 +205,7 @@ impl Upload {
                         &multipart_upload_id,
                         multipart_part_number_generator.next() as i64,
                         current_buffer,
-                    );
+                    )?;
                     parts.push(completed_part);
                 }
                 runtime
@@ -220,7 +218,8 @@ impl Upload {
                             ..Default::default()
                         }),
                     )
-                    .expect("failed to complete multipart upload");
+                    .map(|_| ())
+                    .map_err(Into::into)
             }
         }
     }

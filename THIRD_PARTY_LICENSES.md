@@ -4,7 +4,7 @@ This page lists the licenses of the projects used in s3-write-only-fs.
 
 ## Overview of licenses
 
-- [Apache License 2.0](#Apache-2.0) (124)
+- [Apache License 2.0](#Apache-2.0) (125)
 - [MIT License](#MIT) (40)
 - [BSD 3-Clause &quot;New&quot; or &quot;Revised&quot; License](#BSD-3-Clause) (4)
 
@@ -2358,6 +2358,7 @@ limitations under the License.
 
 #### Used by
 
+- [anyhow 1.0.34]( https://github.com/dtolnay/anyhow )
 - [async-trait 0.1.41]( https://github.com/dtolnay/async-trait )
 - [autocfg 1.0.1]( https://github.com/cuviper/autocfg )
 - [base64 0.12.3]( https://github.com/marshallpierce/rust-base64 )
