@@ -22,6 +22,7 @@ use fuse::{
 };
 use libc::{EACCES, EIO, ENOENT};
 use rusoto_s3::S3Client;
+use slog_scope::{debug, error, info, trace};
 use std::{
     collections::HashMap,
     ffi::OsStr,
@@ -38,6 +39,7 @@ const ROOT_DIRECTORY_INODE: u64 = 1;
 const ROOT_DIRECTORY_TTL: Duration = Duration::from_secs(60);
 
 struct Node {
+    key: String,
     file_attr: FileAttr,
     upload: Mutex<Upload>,
 }
@@ -46,6 +48,7 @@ impl Node {
     fn new(id: u64, bucket: &str, key: &str) -> Node {
         let now = SystemTime::now();
         Node {
+            key: key.to_owned(),
             file_attr: FileAttr {
                 ino: id,
                 size: 0,
@@ -147,13 +150,13 @@ impl Drop for S3WriteOnlyFilesystem {
         match self.nodes.lock() {
             Ok(mut nodes) => {
                 for node in nodes.values_mut() {
-                    if let Err(_) = node.destroy(&mut self.runtime, &self.s3) {
-                        // TODO: log error
+                    if let Err(error) = node.destroy(&mut self.runtime, &self.s3) {
+                        error!("Failed to destroy node '{}'", node.key; "error" => %error);
                     }
                 }
             }
-            Err(_) => {
-                // TODO: log error
+            Err(error) => {
+                error!("failed to acquire lock on filesystem nodes"; "error" => %error);
             }
         }
     }
@@ -161,15 +164,15 @@ impl Drop for S3WriteOnlyFilesystem {
 
 impl Filesystem for S3WriteOnlyFilesystem {
     fn lookup(&mut self, _req: &Request<'_>, _parent: u64, _name: &OsStr, reply: ReplyEntry) {
-        eprintln!("lookup(parent={}, name={:?})", _parent, _name);
+        trace!("lookup(parent={}, name={:?})", _parent, _name);
         reply.error(ENOENT);
     }
 
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
+        trace!("getattr(ino={})", ino);
         match ino {
             ROOT_DIRECTORY_INODE => reply.attr(&ROOT_DIRECTORY_TTL, &self.root_directory_fileattr),
             _ => {
-                eprintln!("getattr(ino={})", ino);
                 match self.nodes.lock() {
                     Ok(nodes) => {
                         if let Some(node) = nodes.get(&ino) {
@@ -177,8 +180,8 @@ impl Filesystem for S3WriteOnlyFilesystem {
                             return;
                         }
                     }
-                    Err(_) => {
-                        // TODO: log error
+                    Err(error) => {
+                        error!("failed to acquire lock on filesystem nodes"; "error" => %error);
                     }
                 }
                 reply.error(ENOENT);
@@ -203,6 +206,11 @@ impl Filesystem for S3WriteOnlyFilesystem {
         _flags: Option<u32>,
         reply: ReplyAttr,
     ) {
+        trace!(
+            "setattr(ino={}, mode={:?}, uid={:?}, gid={:?}, size={:?}, atime={:?}, mtime={:?}, fh={:?}, crtime={:?}, chgtime={:?}, bkuptime={:?}, flags={:?})",
+            ino, _mode, _uid, _gid, _size, _atime, _mtime, _fh, _crtime, _chgtime, _bkuptime, _flags,
+        );
+
         match self.nodes.lock() {
             Ok(nodes) => {
                 if let Some(node) = nodes.get(&ino) {
@@ -210,8 +218,8 @@ impl Filesystem for S3WriteOnlyFilesystem {
                     return;
                 }
             }
-            Err(_) => {
-                // TODO: log error
+            Err(error) => {
+                error!("failed to acquire lock on filesystem nodes"; "error" => %error);
             }
         }
 
@@ -226,10 +234,18 @@ impl Filesystem for S3WriteOnlyFilesystem {
         _mode: u32,
         reply: ReplyEntry,
     ) {
+        trace!(
+            "mkdir(parent={}, name={:?}, mode={})",
+            _parent,
+            _name,
+            _mode
+        );
         reply.error(EACCES);
     }
 
     fn open(&mut self, _req: &Request<'_>, ino: u64, _flags: u32, reply: ReplyOpen) {
+        trace!("open(ino={}, flags={})", ino, _flags);
+
         match self.nodes.lock() {
             Ok(nodes) => {
                 if nodes.get(&ino).is_some() {
@@ -237,8 +253,8 @@ impl Filesystem for S3WriteOnlyFilesystem {
                     return;
                 }
             }
-            Err(_) => {
-                // TODO: log error
+            Err(error) => {
+                error!("failed to acquire lock on filesystem nodes"; "error" => %error);
             }
         }
 
@@ -255,31 +271,33 @@ impl Filesystem for S3WriteOnlyFilesystem {
         _flags: u32,
         reply: ReplyWrite,
     ) {
-        // eprintln!(
-        //     "write(ino={}, fh={}, offset={}, len(data)={}, flags={})",
-        //     ino,
-        //     _fh,
-        //     _offset,
-        //     data.len(),
-        //     _flags
-        // );
+        trace!(
+            "write(ino={}, fh={}, offset={}, len(data)={}, flags={})",
+            ino,
+            _fh,
+            _offset,
+            data.len(),
+            _flags,
+        );
+
         match self.nodes.lock() {
             Ok(mut nodes) => {
                 if let Some(node) = nodes.deref_mut().get_mut(&ino) {
                     match node.write(&mut self.runtime, &self.s3, data) {
                         Ok(_) => {
+                            trace!("written {} bytes to node for '{}'", data.len(), node.key);
                             reply.written(data.len() as u32);
                         }
-                        Err(_) => {
-                            // TODO: log error
+                        Err(error) => {
+                            error!("failed to write data to node"; "error" => %error);
                             reply.error(EIO);
                         }
                     }
                     return;
                 }
             }
-            Err(_) => {
-                // TODO: log error
+            Err(error) => {
+                error!("failed to acquire lock on filesystem nodes"; "error" => %error);
             }
         }
 
@@ -294,7 +312,7 @@ impl Filesystem for S3WriteOnlyFilesystem {
         _lock_owner: u64,
         reply: ReplyEmpty,
     ) {
-        eprintln!("flush(ino={}, fh={}, lock_owner={})", ino, _fh, _lock_owner,);
+        trace!("flush(ino={}, fh={}, lock_owner={})", ino, _fh, _lock_owner);
         reply.ok();
     }
 
@@ -308,27 +326,32 @@ impl Filesystem for S3WriteOnlyFilesystem {
         _flush: bool,
         reply: ReplyEmpty,
     ) {
-        eprintln!(
+        trace!(
             "release(ino={}, fh={}, flags={}, lock_owner={}, flush={})",
-            ino, _fh, _flags, _lock_owner, _flush
+            ino,
+            _fh,
+            _flags,
+            _lock_owner,
+            _flush
         );
         match self.nodes.lock() {
             Ok(mut nodes) => {
                 if let Some(mut node) = nodes.remove(&ino) {
                     match node.finish(&mut self.runtime, &self.s3) {
                         Ok(_) => {
+                            info!("Uploaded new file: {}", node.key);
                             reply.ok();
                         }
-                        Err(_) => {
-                            // TODO: log error
+                        Err(error) => {
+                            error!("failed to finalize node"; "error" => %error);
                             reply.error(EIO);
                         }
                     }
                     return;
                 }
             }
-            Err(_) => {
-                // TODO: log error
+            Err(error) => {
+                error!("failed to acquire lock on filesystem nodes"; "error" => %error);
             }
         }
 
@@ -336,6 +359,8 @@ impl Filesystem for S3WriteOnlyFilesystem {
     }
 
     fn opendir(&mut self, _req: &Request<'_>, ino: u64, _flags: u32, reply: ReplyOpen) {
+        trace!("opendir(ino={}, flags={})", ino, _flags);
+
         if ino == ROOT_DIRECTORY_INODE {
             reply.opened(ROOT_DIRECTORY_INODE, 0);
         } else {
@@ -351,6 +376,8 @@ impl Filesystem for S3WriteOnlyFilesystem {
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
+        trace!("readdir(ino={}, fh={}, offset={})", ino, _fh, offset);
+
         if ino != ROOT_DIRECTORY_INODE {
             reply.error(ENOENT);
             return;
@@ -372,11 +399,18 @@ impl Filesystem for S3WriteOnlyFilesystem {
         _flags: u32,
         reply: ReplyCreate,
     ) {
+        trace!(
+            "create(parent={}, name={:?}, mode={}, flags={})",
+            parent,
+            name,
+            _mode,
+            _flags
+        );
+
         if parent != ROOT_DIRECTORY_INODE {
             reply.error(ENOENT);
             return;
         }
-        eprintln!("create(name={:?})", name);
 
         match self.nodes.lock() {
             Ok(mut nodes) => {
@@ -384,10 +418,12 @@ impl Filesystem for S3WriteOnlyFilesystem {
                 let filename = name.to_string_lossy().into_owned();
                 let node = Node::new(id, &self.s3_bucket, &filename);
                 reply.created(&TTL, &node.file_attr, GENERATION, id, 0);
+
+                debug!("Started new upload for file: {}", node.key);
                 nodes.insert(id, node);
             }
-            Err(_) => {
-                // TODO: log error
+            Err(error) => {
+                error!("failed to acquire lock on filesystem nodes"; "error" => %error);
                 reply.error(EACCES);
             }
         }

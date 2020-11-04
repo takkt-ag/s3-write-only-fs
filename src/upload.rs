@@ -20,6 +20,7 @@ use rusoto_s3::{
     AbortMultipartUploadRequest, CompleteMultipartUploadRequest, CompletedMultipartUpload,
     CompletedPart, CreateMultipartUploadRequest, PutObjectRequest, S3Client, UploadPartRequest, S3,
 };
+use slog_scope::debug;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 
@@ -93,6 +94,7 @@ impl Upload {
             }))?
             .e_tag
             .ok_or_else(|| anyhow!("uploaded multipart did not return e-tag"))?;
+        debug!("Uploaded multipart {} for '{}'", part_number, key);
 
         Ok(CompletedPart {
             e_tag: Some(e_tag),
@@ -109,6 +111,10 @@ impl Upload {
             } => {
                 current_buffer.extend_from_slice(data);
                 if current_buffer.len() >= MULTIPART_MINIMUM_PART_SIZE {
+                    debug!(
+                        "Switching to multipart-upload for '{}', more than {} bytes written",
+                        key, MULTIPART_MINIMUM_PART_SIZE
+                    );
                     let multipart_part_number_generator = Arc::new(IdGenerator::new(1));
                     let multipart_upload_id: String =
                         Self::create_multipart_upload(runtime, s3, &bucket, &key)?;
@@ -174,20 +180,20 @@ impl Upload {
 
     pub(crate) fn finish(self, runtime: &mut Runtime, s3: &S3Client) -> Result<()> {
         match self {
-            Self::Empty => Ok(()),
+            Self::Empty => return Err(anyhow!("Upload is in invalid state, cannot finish")),
             Self::Regular {
                 bucket,
                 key,
                 current_buffer,
-            } => runtime
-                .block_on(s3.put_object(PutObjectRequest {
+            } => {
+                runtime.block_on(s3.put_object(PutObjectRequest {
                     bucket,
-                    key,
+                    key: key.clone(),
                     body: Some(current_buffer.into()),
                     ..Default::default()
-                }))
-                .map(|_| ())
-                .map_err(Into::into),
+                }))?;
+                debug!("Finished regular upload for '{}'", key);
+            }
             Self::Multipart {
                 bucket,
                 key,
@@ -208,40 +214,41 @@ impl Upload {
                     )?;
                     parts.push(completed_part);
                 }
-                runtime
-                    .block_on(
-                        s3.complete_multipart_upload(CompleteMultipartUploadRequest {
-                            bucket,
-                            key,
-                            upload_id: multipart_upload_id,
-                            multipart_upload: Some(CompletedMultipartUpload { parts: Some(parts) }),
-                            ..Default::default()
-                        }),
-                    )
-                    .map(|_| ())
-                    .map_err(Into::into)
+                runtime.block_on(
+                    s3.complete_multipart_upload(CompleteMultipartUploadRequest {
+                        bucket,
+                        key: key.clone(),
+                        upload_id: multipart_upload_id,
+                        multipart_upload: Some(CompletedMultipartUpload { parts: Some(parts) }),
+                        ..Default::default()
+                    }),
+                )?;
+                debug!("Finished multipart upload for '{}'", key);
             }
         }
+
+        Ok(())
     }
 
     pub(crate) fn destroy(self, runtime: &mut Runtime, s3: &S3Client) -> Result<()> {
         match self {
-            Self::Empty => Ok(()),
-            Self::Regular { .. } => Ok(()),
+            Self::Empty => {}
+            Self::Regular { .. } => {}
             Self::Multipart {
                 bucket,
                 key,
                 multipart_upload_id,
                 ..
-            } => runtime
-                .block_on(s3.abort_multipart_upload(AbortMultipartUploadRequest {
+            } => {
+                runtime.block_on(s3.abort_multipart_upload(AbortMultipartUploadRequest {
                     bucket,
-                    key,
+                    key: key.clone(),
                     upload_id: multipart_upload_id,
                     ..Default::default()
-                }))
-                .map(|_| ())
-                .map_err(Into::into),
+                }))?;
+                debug!("Successfully aborted multipart upload for '{}'", key);
+            }
         }
+        Ok(())
     }
 }
