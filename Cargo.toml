@@ -17,6 +17,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.34"
+clap = "3.0.0-beta.2"
 fuse = { git = "https://github.com/zargony/fuse-rs/", rev = "39fde4a5c47ce370d228ac190f950bd835db7f47" }
 libc = "0.2.80"
 log = "0.4.11"

@@ -22,13 +22,48 @@ mod upload;
 
 use crate::s3_write_only_filesystem::S3WriteOnlyFilesystem;
 use anyhow::Result;
+use clap::{crate_authors, crate_description, crate_version, Clap};
 use rusoto_core::Region;
 use rusoto_s3::S3Client;
 use slog::{o, Drain};
 use slog_scope::{debug, info};
-use std::{env, ffi::OsStr, sync::Mutex};
+use std::{env, ffi::OsString, sync::Mutex};
+
+#[derive(Debug, Clap)]
+#[clap(
+    author = crate_authors!(),
+    version = crate_version!(),
+    about = crate_description!(),
+)]
+struct Opts {
+    /// S3 bucket name to mount the write-only filesystem against.
+    s3_bucket_name: String,
+    /// Mountpoint to mount the filesystem to.
+    mountpoint: OsString,
+    /// Tolerate sloppy mount options, i.e. do not fail if unknown options were passed.
+    #[clap(hidden = true, short = 's')]
+    tolerate_sloppy_mount_options: bool,
+    /// Don't actually mount the filesystem.
+    #[clap(hidden = true, short = 'f')]
+    fake: bool,
+    /// Don't update /etc/mtab.
+    #[clap(hidden = true, short = 'n')]
+    dont_write_mtab: bool,
+    /// Enable verbose output
+    #[clap(hidden = true, short = 'v')]
+    verbose: bool,
+    /// The filesystem type to mount.
+    #[clap(hidden = true, short = 't')]
+    filesystem_type: Option<OsString>,
+    /// Filesystem options, comma-separated.
+    #[clap(short = 'o', value_delimiter = ",", use_delimiter = true)]
+    options: Vec<OsString>,
+}
 
 fn main() -> Result<()> {
+    // Parse command-line arguments
+    let opts = Opts::parse();
+
     // Setup logging
     // Create a JSON-drain, i.e. a drain that will print out the structured log-message as a JSON-object.
     let json_drain = Mutex::new(slog_json::Json::default(std::io::stdout())).map(slog::Fuse);
@@ -45,16 +80,42 @@ fn main() -> Result<()> {
     debug!("Creating S3 client");
     let s3 = S3Client::new(Region::EuCentral1);
 
-    let mountpoint = env::args_os().nth(1).unwrap();
-    let s3_bucket = env::args_os().nth(2).unwrap();
-    let options = ["-o", "fsname=hello", "-o", "uid=66671"]
-        .iter()
-        .map(|o| o.as_ref())
-        .collect::<Vec<&OsStr>>();
+    let options = mount_options(&opts);
+    let options_ref = options.iter().map(OsString::as_ref).collect::<Vec<_>>();
+
+    let s3_bucket = opts.s3_bucket_name;
+    let mountpoint = opts.mountpoint;
 
     debug!("Creating S3 write-only filesystem");
-    let s3_write_only_filesystem = S3WriteOnlyFilesystem::new(s3, s3_bucket.into_string().unwrap())?;
-    fuse::mount(s3_write_only_filesystem, mountpoint, &options).unwrap();
+    let s3_write_only_filesystem = S3WriteOnlyFilesystem::new(s3, s3_bucket)?;
+    fuse::mount(s3_write_only_filesystem, mountpoint, &options_ref).unwrap();
 
     Ok(())
+}
+
+fn mount_options(opts: &Opts) -> Vec<OsString> {
+    let mut options: Vec<OsString> = vec![];
+    if opts.tolerate_sloppy_mount_options {
+        options.push("-s".into());
+    }
+    if opts.fake {
+        options.push("-m".into());
+    }
+    if opts.dont_write_mtab {
+        options.push("-n".into());
+    }
+    if opts.verbose {
+        options.push("-v".into());
+    }
+    options.extend_from_slice(&[
+        "-o".into(),
+        format!("fsname={}", opts.s3_bucket_name).into(),
+        "-o".into(),
+        "subtype=s3wofs".into(),
+    ]);
+    for option in &opts.options {
+        options.extend_from_slice(&["-o".into(), option.to_owned()]);
+    }
+
+    options
 }
