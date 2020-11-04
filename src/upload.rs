@@ -17,8 +17,8 @@
 use crate::id_generator::IdGenerator;
 use anyhow::{anyhow, Result};
 use rusoto_s3::{
-    CompleteMultipartUploadRequest, CompletedMultipartUpload, CompletedPart,
-    CreateMultipartUploadRequest, PutObjectRequest, S3Client, UploadPartRequest, S3,
+    AbortMultipartUploadRequest, CompleteMultipartUploadRequest, CompletedMultipartUpload,
+    CompletedPart, CreateMultipartUploadRequest, PutObjectRequest, S3Client, UploadPartRequest, S3,
 };
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -221,6 +221,27 @@ impl Upload {
                     .map(|_| ())
                     .map_err(Into::into)
             }
+        }
+    }
+
+    pub(crate) fn destroy(self, runtime: &mut Runtime, s3: &S3Client) -> Result<()> {
+        match self {
+            Self::Empty => Ok(()),
+            Self::Regular { .. } => Ok(()),
+            Self::Multipart {
+                bucket,
+                key,
+                multipart_upload_id,
+                ..
+            } => runtime
+                .block_on(s3.abort_multipart_upload(AbortMultipartUploadRequest {
+                    bucket,
+                    key,
+                    upload_id: multipart_upload_id,
+                    ..Default::default()
+                }))
+                .map(|_| ())
+                .map_err(Into::into),
         }
     }
 }

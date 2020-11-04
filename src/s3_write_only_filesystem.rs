@@ -84,6 +84,15 @@ impl Node {
 
         Ok(())
     }
+
+    fn destroy(&mut self, runtime: &mut Runtime, s3: &S3Client) -> Result<()> {
+        let upload = std::mem::take(&mut self.upload)
+            .into_inner()
+            .context("failed to lock node.upload")?;
+        upload.destroy(runtime, s3)?;
+
+        Ok(())
+    }
 }
 
 pub(crate) struct S3WriteOnlyFilesystem {
@@ -129,6 +138,24 @@ impl S3WriteOnlyFilesystem {
             s3_bucket,
             runtime,
         })
+    }
+}
+
+impl Drop for S3WriteOnlyFilesystem {
+    fn drop(&mut self) {
+        trace!("S3WriteOnlyFilesystem::drop()");
+        match self.nodes.lock() {
+            Ok(mut nodes) => {
+                for node in nodes.values_mut() {
+                    if let Err(_) = node.destroy(&mut self.runtime, &self.s3) {
+                        // TODO: log error
+                    }
+                }
+            }
+            Err(_) => {
+                // TODO: log error
+            }
+        }
     }
 }
 
