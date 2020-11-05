@@ -26,7 +26,7 @@ use clap::{crate_authors, crate_description, crate_version, Clap};
 use rusoto_core::Region;
 use rusoto_s3::S3Client;
 use slog::{o, Drain};
-use slog_scope::{debug, info};
+use slog_scope::{debug, error, info};
 use std::{env, ffi::OsString};
 
 #[derive(Debug, Clap)]
@@ -40,6 +40,9 @@ struct Opts {
     s3_bucket_name: String,
     /// Mountpoint to mount the filesystem to.
     mountpoint: OsString,
+    /// Don't daemonize, i.e. continue to run in the foreground
+    #[clap(long = "foreground")]
+    foreground: bool,
     /// Tolerate sloppy mount options, i.e. do not fail if unknown options were passed.
     #[clap(hidden = true, short = 's')]
     tolerate_sloppy_mount_options: bool,
@@ -88,9 +91,38 @@ fn main() -> Result<()> {
     let s3_bucket = opts.s3_bucket_name;
     let mountpoint = opts.mountpoint;
 
-    debug!("Creating S3 write-only filesystem");
-    let s3_write_only_filesystem = S3WriteOnlyFilesystem::new(s3, s3_bucket)?;
-    fuse::mount(s3_write_only_filesystem, mountpoint, &options_ref).unwrap();
+    if opts.foreground {
+        debug!("Staying in foreground");
+        debug!("Creating S3 write-only filesystem");
+        let s3_write_only_filesystem = S3WriteOnlyFilesystem::new(s3, s3_bucket)?;
+        fuse::mount(s3_write_only_filesystem, mountpoint, &options_ref).unwrap();
+    } else {
+        info!(
+            "Foreground execution not requested, this process will daemonize now! This means that \
+             it will continue to run in the background, serving the write-only filesystem under \
+             the requested mountpoint."
+        );
+        match daemonize::Daemonize::new()
+            .working_directory(std::env::current_dir()?)
+            .start()
+        {
+            Ok(_) => {
+                // Reconfigure logging to use journald
+                let logger = slog::Logger::root(slog_journald::JournaldDrain.ignore_res(), o!());
+                // Apply the root logger to the global scope.
+                let _global_logger_guard = slog_scope::set_global_logger(logger.clone());
+
+                debug!("Daemonized into background successfully");
+                debug!("Creating S3 write-only filesystem");
+                let s3_write_only_filesystem = S3WriteOnlyFilesystem::new(s3, s3_bucket)?;
+                fuse::mount(s3_write_only_filesystem, mountpoint, &options_ref).unwrap();
+            }
+            Err(error) => {
+                error!("Failed to daemonize, the filesystem will not be available";
+                       "error" => %error);
+            }
+        }
+    }
 
     Ok(())
 }
