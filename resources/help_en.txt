@@ -1,0 +1,9 @@
+This is a special directory in which files will automatically be processed after
+upload. This has two major implications:
+
+1. Any files that you will upload into this directory will not be visible, even
+   if the upload was successful. If the upload failed, you should still get an
+   error message.
+
+2. You will not be able to abort file-processing once you have started to upload
+   a file.

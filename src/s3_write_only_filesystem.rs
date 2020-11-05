@@ -17,8 +17,8 @@
 use crate::{id_generator::IdGenerator, upload::Upload};
 use anyhow::{Context, Result};
 use fuse::{
-    FileAttr, FileType, Filesystem, ReplyAttr, ReplyCreate, ReplyDirectory, ReplyEmpty, ReplyEntry,
-    ReplyOpen, ReplyWrite, Request,
+    FileAttr, FileType, Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
+    ReplyEntry, ReplyOpen, ReplyWrite, Request,
 };
 use libc::{EACCES, EIO, ENOENT};
 use rusoto_s3::S3Client;
@@ -37,6 +37,47 @@ const TTL: Duration = Duration::from_secs(0);
 
 const ROOT_DIRECTORY_INODE: u64 = 1;
 const ROOT_DIRECTORY_TTL: Duration = Duration::from_secs(60);
+
+const HELP_EN_INODE: u64 = 2;
+const HELP_EN_NAME: &str = "_Uploaded files will not be visible.txt";
+const HELP_EN_CONTENTS: &str = include_str!("../resources/help_en.txt");
+const HELP_EN_FILEATTR: FileAttr = FileAttr {
+    ino: HELP_EN_INODE,
+    size: HELP_EN_CONTENTS.len() as u64,
+    blocks: 1,
+    atime: SystemTime::UNIX_EPOCH,
+    mtime: SystemTime::UNIX_EPOCH,
+    ctime: SystemTime::UNIX_EPOCH,
+    crtime: SystemTime::UNIX_EPOCH,
+    kind: FileType::RegularFile,
+    perm: 0o644,
+    nlink: 1,
+    uid: 0,
+    gid: 0,
+    rdev: 0,
+    flags: 0,
+};
+const HELP_DE_INODE: u64 = 3;
+const HELP_DE_NAME: &str = "_Hochgeladene Dateien werden nicht sichtbar sein.txt";
+const HELP_DE_CONTENTS: &str = include_str!("../resources/help_de.txt");
+const HELP_DE_FILEATTR: FileAttr = FileAttr {
+    ino: HELP_DE_INODE,
+    size: HELP_DE_CONTENTS.len() as u64,
+    blocks: 1,
+    atime: SystemTime::UNIX_EPOCH,
+    mtime: SystemTime::UNIX_EPOCH,
+    ctime: SystemTime::UNIX_EPOCH,
+    crtime: SystemTime::UNIX_EPOCH,
+    kind: FileType::RegularFile,
+    perm: 0o644,
+    nlink: 1,
+    uid: 0,
+    gid: 0,
+    rdev: 0,
+    flags: 0,
+};
+
+const STATIC_INODES: &[u64] = &[ROOT_DIRECTORY_INODE, HELP_EN_INODE, HELP_DE_INODE];
 
 struct Node {
     key: String,
@@ -163,15 +204,28 @@ impl Drop for S3WriteOnlyFilesystem {
 }
 
 impl Filesystem for S3WriteOnlyFilesystem {
-    fn lookup(&mut self, _req: &Request<'_>, _parent: u64, _name: &OsStr, reply: ReplyEntry) {
-        trace!("lookup(parent={}, name={:?})", _parent, _name);
-        reply.error(ENOENT);
+    fn lookup(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEntry) {
+        trace!("lookup(parent={}, name={:?})", parent, name);
+        if parent != ROOT_DIRECTORY_INODE {
+            reply.error(ENOENT);
+            return;
+        }
+
+        if name == HELP_EN_NAME {
+            reply.entry(&TTL, &HELP_EN_FILEATTR, GENERATION);
+        } else if name == HELP_DE_NAME {
+            reply.entry(&TTL, &HELP_DE_FILEATTR, GENERATION);
+        } else {
+            reply.error(ENOENT);
+        }
     }
 
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
         trace!("getattr(ino={})", ino);
         match ino {
             ROOT_DIRECTORY_INODE => reply.attr(&ROOT_DIRECTORY_TTL, &self.root_directory_fileattr),
+            HELP_EN_INODE => reply.attr(&ROOT_DIRECTORY_TTL, &HELP_EN_FILEATTR),
+            HELP_DE_INODE => reply.attr(&ROOT_DIRECTORY_TTL, &HELP_DE_FILEATTR),
             _ => {
                 match self.nodes.lock() {
                     Ok(nodes) => {
@@ -246,6 +300,17 @@ impl Filesystem for S3WriteOnlyFilesystem {
     fn open(&mut self, _req: &Request<'_>, ino: u64, _flags: u32, reply: ReplyOpen) {
         trace!("open(ino={}, flags={})", ino, _flags);
 
+        if ino == ROOT_DIRECTORY_INODE {
+            reply.error(ENOENT);
+            return;
+        }
+
+        // Open static file if requested
+        if STATIC_INODES.contains(&ino) {
+            reply.opened(ino, 0);
+            return;
+        }
+
         match self.nodes.lock() {
             Ok(nodes) => {
                 if nodes.get(&ino).is_some() {
@@ -259,6 +324,47 @@ impl Filesystem for S3WriteOnlyFilesystem {
         }
 
         reply.error(ENOENT);
+    }
+
+    fn read(
+        &mut self,
+        _req: &Request<'_>,
+        ino: u64,
+        _fh: u64,
+        offset: i64,
+        size: u32,
+        reply: ReplyData,
+    ) {
+        let offset = offset as usize;
+        let size = size as usize;
+
+        trace!(
+            "read(ino={}, fh={}, offset={}, size={})",
+            ino,
+            _fh,
+            offset,
+            size
+        );
+        let contents = match ino {
+            HELP_EN_INODE => HELP_EN_CONTENTS,
+            HELP_DE_INODE => HELP_DE_CONTENTS,
+            _ => {
+                reply.error(ENOENT);
+                return;
+            }
+        }
+        .as_bytes();
+
+        // If we offset past the end of our contents, return no more data.
+        if offset >= contents.len() {
+            reply.data(&[]);
+            return;
+        }
+        // Determine the end-offset such that we don't slice past the end of our content, i.e. don't
+        // allow more data to be requested than is available.
+        let end = std::cmp::min(contents.len(), offset + size);
+
+        reply.data(&contents[offset..end]);
     }
 
     fn write(
@@ -334,6 +440,12 @@ impl Filesystem for S3WriteOnlyFilesystem {
             _lock_owner,
             _flush
         );
+
+        if STATIC_INODES.contains(&ino) {
+            reply.ok();
+            return;
+        }
+
         match self.nodes.lock() {
             Ok(mut nodes) => {
                 if let Some(mut node) = nodes.remove(&ino) {
@@ -386,6 +498,8 @@ impl Filesystem for S3WriteOnlyFilesystem {
         if offset == 0 {
             reply.add(ROOT_DIRECTORY_INODE, 0, FileType::Directory, ".");
             reply.add(ROOT_DIRECTORY_INODE, 1, FileType::Directory, "..");
+            reply.add(HELP_EN_INODE, 2, FileType::RegularFile, HELP_EN_NAME);
+            reply.add(HELP_DE_INODE, 3, FileType::RegularFile, HELP_DE_NAME);
         }
         reply.ok();
     }

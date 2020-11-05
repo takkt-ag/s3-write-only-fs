@@ -1,0 +1,11 @@
+Bei diesem Verzeichnis handelt es sich um ein spezielles Verzeichnis in dem
+abgelegte Dateien sofort verarbeitet werden. Daher sind folgende zwei Punkte zu
+beachten:
+
+1. Wenn eine Datei in diesem Verzeichnis abgelegt wurde, wird sie nicht
+   sichtbar sein, egal, ob der Upload erfolgreich oder fehlerhaft war. Wenn der
+   Upload auf einen Fehler gestoßen ist, sollte dennoch eine Fehlermeldung
+   angezeigt werden.
+
+2. Sobald der Upload einer Datei gestartet wird, kann die Abarbeitung der Datei
+   nicht mehr gestoppt werden!
