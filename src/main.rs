@@ -27,7 +27,7 @@ use rusoto_core::Region;
 use rusoto_s3::S3Client;
 use slog::{o, Drain};
 use slog_scope::{debug, info};
-use std::{env, ffi::OsString, sync::Mutex};
+use std::{env, ffi::OsString};
 
 #[derive(Debug, Clap)]
 #[clap(
@@ -65,10 +65,12 @@ fn main() -> Result<()> {
     let opts = Opts::parse();
 
     // Setup logging
-    // Create a JSON-drain, i.e. a drain that will print out the structured log-message as a JSON-object.
-    let json_drain = Mutex::new(slog_json::Json::default(std::io::stdout())).map(slog::Fuse);
+    // Setup terminal logger
+    let decorator = slog_term::PlainDecorator::new(std::io::stdout());
+    let drain = slog_term::CompactFormat::new(decorator).build().fuse();
+    let drain = slog_async::Async::new(drain).build().fuse();
     // Create the root slog-logger.
-    let logger = slog::Logger::root(json_drain, o!());
+    let logger = slog::Logger::root(drain, o!());
     // Setup bridge between `log` and `slog`.
     slog_stdlog::init_with_level(log::Level::Info).expect("failed to setup logging");
     // Apply the root logger to the global scope.
