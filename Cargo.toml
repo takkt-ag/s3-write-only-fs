@@ -1,6 +1,7 @@
 [package]
 name = "s3-write-only-fs"
 version = "0.1.0"
+description = "FUSE filesystem to mount an S3-bucket in a write-only fashion"
 edition = "2018"
 
 authors = [
@@ -31,3 +32,12 @@ slog-scope = "4.3.0"
 slog-stdlog = "4.1.0"
 slog-term = "2.6.0"
 tokio = { version = "0.2.22", features = ["full"] }
+
+[package.metadata.rpm]
+package = "s3-write-only-fs"
+
+[package.metadata.rpm.cargo]
+buildflags = ["--release"]
+
+[package.metadata.rpm.targets]
+s3-write-only-fs = { path = "/s3-write-only-fs" }
