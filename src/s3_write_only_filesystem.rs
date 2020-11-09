@@ -27,6 +27,7 @@ use std::{
     collections::HashMap,
     ffi::OsStr,
     ops::DerefMut,
+    str::FromStr,
     sync::{Arc, Mutex},
     time::{Duration, SystemTime},
 };
@@ -78,6 +79,106 @@ const HELP_DE_FILEATTR: FileAttr = FileAttr {
 };
 
 const STATIC_INODES: &[u64] = &[ROOT_DIRECTORY_INODE, HELP_EN_INODE, HELP_DE_INODE];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BucketAndPrefix {
+    pub s3_bucket_name: String,
+    pub prefix_path: Option<String>,
+}
+
+impl FromStr for BucketAndPrefix {
+    type Err = anyhow::Error;
+
+    fn from_str(device: &str) -> Result<Self, Self::Err> {
+        if let Some(index) = device.find(':') {
+            let prefix_path = device[index + 1..]
+                .trim_start_matches('/')
+                .trim_end_matches('/');
+            let prefix_path = if prefix_path.is_empty() {
+                None
+            } else {
+                Some(prefix_path.to_owned())
+            };
+            Ok(BucketAndPrefix {
+                s3_bucket_name: device[..index].to_owned(),
+                prefix_path,
+            })
+        } else {
+            Ok(BucketAndPrefix {
+                s3_bucket_name: device.to_owned(),
+                prefix_path: None,
+            })
+        }
+    }
+}
+
+#[test]
+fn bucket_and_prefix_fromstr() {
+    assert_eq!(
+        "my-bucket".parse::<BucketAndPrefix>().unwrap(),
+        BucketAndPrefix {
+            s3_bucket_name: "my-bucket".to_owned(),
+            prefix_path: None
+        }
+    );
+    assert_eq!(
+        "my-bucket:".parse::<BucketAndPrefix>().unwrap(),
+        BucketAndPrefix {
+            s3_bucket_name: "my-bucket".to_owned(),
+            prefix_path: None,
+        }
+    );
+    assert_eq!(
+        "my-bucket:/".parse::<BucketAndPrefix>().unwrap(),
+        BucketAndPrefix {
+            s3_bucket_name: "my-bucket".to_owned(),
+            prefix_path: None,
+        }
+    );
+    assert_eq!(
+        "my-bucket://".parse::<BucketAndPrefix>().unwrap(),
+        BucketAndPrefix {
+            s3_bucket_name: "my-bucket".to_owned(),
+            prefix_path: None,
+        }
+    );
+    assert_eq!(
+        "my-bucket:/single-prefix"
+            .parse::<BucketAndPrefix>()
+            .unwrap(),
+        BucketAndPrefix {
+            s3_bucket_name: "my-bucket".to_owned(),
+            prefix_path: Some("single-prefix".to_owned()),
+        }
+    );
+    assert_eq!(
+        "my-bucket://single-prefix/"
+            .parse::<BucketAndPrefix>()
+            .unwrap(),
+        BucketAndPrefix {
+            s3_bucket_name: "my-bucket".to_owned(),
+            prefix_path: Some("single-prefix".to_owned()),
+        }
+    );
+    assert_eq!(
+        "my-bucket:/multi/prefix"
+            .parse::<BucketAndPrefix>()
+            .unwrap(),
+        BucketAndPrefix {
+            s3_bucket_name: "my-bucket".to_owned(),
+            prefix_path: Some("multi/prefix".to_owned()),
+        }
+    );
+    assert_eq!(
+        "my-bucket:/multi//prefix/"
+            .parse::<BucketAndPrefix>()
+            .unwrap(),
+        BucketAndPrefix {
+            s3_bucket_name: "my-bucket".to_owned(),
+            prefix_path: Some("multi//prefix".to_owned()),
+        }
+    );
+}
 
 struct Node {
     key: String,
@@ -147,11 +248,15 @@ pub(crate) struct S3WriteOnlyFilesystem {
 
     s3: S3Client,
     s3_bucket: String,
+    s3_prefix_path: Option<String>,
     runtime: Runtime,
 }
 
 impl S3WriteOnlyFilesystem {
-    pub(crate) fn new(s3: S3Client, s3_bucket: String) -> Result<S3WriteOnlyFilesystem> {
+    pub(crate) fn new(
+        s3: S3Client,
+        bucket_and_prefix: BucketAndPrefix,
+    ) -> Result<S3WriteOnlyFilesystem> {
         let now = SystemTime::now();
         let root_directory_fileattr = FileAttr {
             ino: ROOT_DIRECTORY_INODE,
@@ -179,7 +284,8 @@ impl S3WriteOnlyFilesystem {
             id_generator,
             nodes,
             s3,
-            s3_bucket,
+            s3_bucket: bucket_and_prefix.s3_bucket_name,
+            s3_prefix_path: bucket_and_prefix.prefix_path,
             runtime,
         })
     }
@@ -529,7 +635,10 @@ impl Filesystem for S3WriteOnlyFilesystem {
         match self.nodes.lock() {
             Ok(mut nodes) => {
                 let id = self.id_generator.next();
-                let filename = name.to_string_lossy().into_owned();
+                let mut filename = name.to_string_lossy().into_owned();
+                if let Some(s3_prefix) = &self.s3_prefix_path {
+                    filename = [&*s3_prefix, &*filename].join("/")
+                };
                 let node = Node::new(id, &self.s3_bucket, &filename);
                 reply.created(&TTL, &node.file_attr, GENERATION, id, 0);
 

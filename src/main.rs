@@ -20,7 +20,7 @@ mod id_generator;
 mod s3_write_only_filesystem;
 mod upload;
 
-use crate::s3_write_only_filesystem::S3WriteOnlyFilesystem;
+use crate::s3_write_only_filesystem::{BucketAndPrefix, S3WriteOnlyFilesystem};
 use anyhow::Result;
 use clap::{crate_authors, crate_description, crate_version, Clap};
 use rusoto_core::Region;
@@ -36,8 +36,12 @@ use std::{env, ffi::OsString};
     about = crate_description!(),
 )]
 struct Opts {
-    /// S3 bucket name to mount the write-only filesystem against.
-    s3_bucket_name: String,
+    /// S3 bucket (with optional prefix) to mount the write-only filesystem against.
+    ///
+    /// If you want to mount the root of a bucket, you can simply provide `my-bucket-name`. If you
+    /// want to mount a sub-directory (prefix), you can provide it after a colon, e.g.:
+    /// `my-bucket-name:prefix/path/`.
+    device: String,
     /// Mountpoint to mount the filesystem to.
     mountpoint: OsString,
     /// Don't daemonize, i.e. continue to run in the foreground
@@ -85,16 +89,15 @@ fn main() -> Result<()> {
     debug!("Creating S3 client");
     let s3 = S3Client::new(Region::EuCentral1);
 
-    let options = mount_options(&opts);
+    let bucket_and_prefix = opts.device.parse()?;
+    let options = mount_options(&opts, &bucket_and_prefix);
     let options_ref = options.iter().map(OsString::as_ref).collect::<Vec<_>>();
-
-    let s3_bucket = opts.s3_bucket_name;
     let mountpoint = opts.mountpoint;
 
     if opts.foreground {
         debug!("Staying in foreground");
         debug!("Creating S3 write-only filesystem");
-        let s3_write_only_filesystem = S3WriteOnlyFilesystem::new(s3, s3_bucket)?;
+        let s3_write_only_filesystem = S3WriteOnlyFilesystem::new(s3, bucket_and_prefix)?;
         fuse::mount(s3_write_only_filesystem, mountpoint, &options_ref).unwrap();
     } else {
         info!(
@@ -114,7 +117,7 @@ fn main() -> Result<()> {
 
                 debug!("Daemonized into background successfully");
                 debug!("Creating S3 write-only filesystem");
-                let s3_write_only_filesystem = S3WriteOnlyFilesystem::new(s3, s3_bucket)?;
+                let s3_write_only_filesystem = S3WriteOnlyFilesystem::new(s3, bucket_and_prefix)?;
                 fuse::mount(s3_write_only_filesystem, mountpoint, &options_ref).unwrap();
             }
             Err(error) => {
@@ -127,7 +130,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn mount_options(opts: &Opts) -> Vec<OsString> {
+fn mount_options(opts: &Opts, bucket_and_prefix: &BucketAndPrefix) -> Vec<OsString> {
     let mut options: Vec<OsString> = vec![];
     if opts.tolerate_sloppy_mount_options {
         options.push("-s".into());
@@ -143,7 +146,7 @@ fn mount_options(opts: &Opts) -> Vec<OsString> {
     }
     options.extend_from_slice(&[
         "-o".into(),
-        format!("fsname={}", opts.s3_bucket_name).into(),
+        format!("fsname={}", bucket_and_prefix.s3_bucket_name).into(),
         "-o".into(),
         "subtype=s3wofs".into(),
     ]);
