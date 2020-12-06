@@ -637,7 +637,7 @@ impl Filesystem for S3WriteOnlyFilesystem {
                 let id = self.id_generator.next();
                 let mut filename = name.to_string_lossy().into_owned();
                 if let Some(s3_prefix) = &self.s3_prefix_path {
-                    filename = [&*s3_prefix, &*filename].join("/")
+                    filename = [s3_prefix, &*filename].join("/")
                 };
                 let node = Node::new(id, &self.s3_bucket, &filename);
                 reply.created(&TTL, &node.file_attr, GENERATION, id, 0);

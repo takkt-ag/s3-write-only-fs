@@ -22,19 +22,15 @@ mod upload;
 
 use crate::s3_write_only_filesystem::{BucketAndPrefix, S3WriteOnlyFilesystem};
 use anyhow::Result;
-use clap::{crate_authors, crate_description, crate_version, Clap};
+use clap::Parser;
 use rusoto_core::Region;
 use rusoto_s3::S3Client;
 use slog::{o, Drain};
 use slog_scope::{debug, error, info};
 use std::{env, ffi::OsString};
 
-#[derive(Debug, Clap)]
-#[clap(
-    author = crate_authors!(),
-    version = crate_version!(),
-    about = crate_description!(),
-)]
+#[derive(Debug, Parser)]
+#[clap(author, version, about)]
 struct Opts {
     /// S3 bucket (with optional prefix) to mount the write-only filesystem against.
     ///
@@ -48,22 +44,22 @@ struct Opts {
     #[clap(long = "foreground")]
     foreground: bool,
     /// Tolerate sloppy mount options, i.e. do not fail if unknown options were passed.
-    #[clap(hidden = true, short = 's')]
+    #[clap(hide = true, short = 's')]
     tolerate_sloppy_mount_options: bool,
     /// Don't actually mount the filesystem.
-    #[clap(hidden = true, short = 'f')]
+    #[clap(hide = true, short = 'f')]
     fake: bool,
     /// Don't update /etc/mtab.
-    #[clap(hidden = true, short = 'n')]
+    #[clap(hide = true, short = 'n')]
     dont_write_mtab: bool,
     /// Enable verbose output
-    #[clap(hidden = true, short = 'v')]
+    #[clap(hide = true, short = 'v')]
     verbose: bool,
     /// The filesystem type to mount.
-    #[clap(hidden = true, short = 't')]
+    #[clap(hide = true, short = 't')]
     filesystem_type: Option<OsString>,
     /// Filesystem options, comma-separated.
-    #[clap(short = 'o', value_delimiter = ",", use_delimiter = true)]
+    #[clap(short = 'o', value_delimiter = ',', use_value_delimiter = true)]
     options: Vec<OsString>,
 }
 

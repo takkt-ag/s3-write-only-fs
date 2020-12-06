@@ -17,21 +17,21 @@ name = "s3-write-only-fs"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1.0.34"
-clap = "3.0.0-beta.2"
+anyhow = "1.0.66"
+clap = { version = "3.2.17", features = ["cargo", "derive"] }
 daemonize = "0.4.1"
 fuse = { git = "https://github.com/zargony/fuse-rs/", rev = "39fde4a5c47ce370d228ac190f950bd835db7f47" }
-libc = "0.2.80"
-log = "0.4.11"
-rusoto_core = "0.45.0"
-rusoto_s3 = "0.45.0"
-slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_debug"] }
-slog-async = "2.5.0"
-slog-journald = "2.1.1"
-slog-scope = "4.3.0"
-slog-stdlog = "4.1.0"
-slog-term = "2.6.0"
-tokio = { version = "0.2.22", features = ["full"] }
+libc = "0.2.137"
+log = "0.4.17"
+rusoto_core = "0.48.0"
+rusoto_s3 = "0.48.0"
+slog = { version = "2.7.0", features = ["max_level_trace", "release_max_level_debug"] }
+slog-async = "2.7.0"
+slog-journald = "2.2.0"
+slog-scope = "4.4.0"
+slog-stdlog = "4.1.1"
+slog-term = "2.9.0"
+tokio = { version = "1.21.2", features = ["full"] }
 
 [package.metadata.rpm]
 package = "s3-write-only-fs"
