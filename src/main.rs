@@ -20,14 +20,27 @@ mod id_generator;
 mod s3_write_only_filesystem;
 mod upload;
 
-use crate::s3_write_only_filesystem::{BucketAndPrefix, S3WriteOnlyFilesystem};
+use crate::s3_write_only_filesystem::{
+    BucketAndPrefix,
+    S3WriteOnlyFilesystem,
+};
 use anyhow::Result;
 use clap::Parser;
 use rusoto_core::Region;
 use rusoto_s3::S3Client;
-use slog::{o, Drain};
-use slog_scope::{debug, error, info};
-use std::{env, ffi::OsString};
+use slog::{
+    o,
+    Drain,
+};
+use slog_scope::{
+    debug,
+    error,
+    info,
+};
+use std::{
+    env,
+    ffi::OsString,
+};
 
 #[derive(Debug, Parser)]
 #[clap(author, version, about)]

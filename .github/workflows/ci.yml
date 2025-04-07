@@ -1,0 +1,118 @@
+---
+name: CI
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+    branches:
+    - main
+
+jobs:
+  check-license-comments:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Check license comments
+      run: |
+        ./.tools/check-license-comments.sh
+
+  cargo-deny:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        checks:
+        - advisories
+        - bans licenses sources
+
+    # Prevent sudden announcement of a new advisory from failing ci:
+    continue-on-error: ${{ matrix.checks == 'advisories' }}
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: EmbarkStudios/cargo-deny-action@v2.0.1
+      with:
+        command: check ${{ matrix.checks }}
+
+  cargo-about:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Install cargo-about
+      uses: taiki-e/install-action@v2.44.50
+      with:
+        tool: cargo-about
+    - name: Generate up-to-date `THIRD_PARTY_LICENSES.md`
+      run: cargo about generate -o ./THIRD_PARTY_LICENSES.md ./.tools/cargo-about-markdown-template.hbs
+    - name: Verify `THIRD_PARTY_LICENSES.md` is up-to-date
+      run: |
+        git diff --exit-code ./THIRD_PARTY_LICENSES.md
+        if [ $? -ne 0 ]; then
+          echo "THIRD_PARTY_LICENSES.md is out of date. Please run 'cargo about generate -o ./THIRD_PARTY_LICENSES.md ./.tools/cargo-about-markdown-template.hbs' locally, compare what has changed and commit the changes."
+          exit 1
+        fi
+
+  linting:
+    permissions:
+      contents: read
+      checks: write # required for clippy-check
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Install latest Rust stable
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+        components: clippy
+    - name: Install latest Rust nightly
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: nightly
+        components: rustfmt
+    - name: Install build-time dependencies
+      run: sudo apt install -y libfuse-dev
+
+    - name: cargo fmt
+      uses: actions-rs/cargo@v1
+      with:
+        command: fmt
+        args: --all --check
+        toolchain: nightly
+    - name: clippy
+      uses: actions-rs/clippy-check@v1
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        args: --workspace --lib --bins --tests --all-targets -- -Dwarnings
+    - name: yamllint
+      uses: frenck/action-yamllint@v1.5.0
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Install latest Rust stable
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+    - name: Install build-time dependencies
+      run: sudo apt install -y libfuse-dev
+
+    - name: cargo build
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --all --release
+    - name: cargo test
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
+        args: --all --release

@@ -14,22 +14,53 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{id_generator::IdGenerator, upload::Upload};
-use anyhow::{Context, Result};
-use fuse::{
-    FileAttr, FileType, Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty,
-    ReplyEntry, ReplyOpen, ReplyWrite, Request,
+use crate::{
+    id_generator::IdGenerator,
+    upload::Upload,
 };
-use libc::{EACCES, EIO, ENOENT};
+use anyhow::{
+    Context,
+    Result,
+};
+use fuse::{
+    FileAttr,
+    FileType,
+    Filesystem,
+    ReplyAttr,
+    ReplyCreate,
+    ReplyData,
+    ReplyDirectory,
+    ReplyEmpty,
+    ReplyEntry,
+    ReplyOpen,
+    ReplyWrite,
+    Request,
+};
+use libc::{
+    EACCES,
+    EIO,
+    ENOENT,
+};
 use rusoto_s3::S3Client;
-use slog_scope::{debug, error, info, trace};
+use slog_scope::{
+    debug,
+    error,
+    info,
+    trace,
+};
 use std::{
     collections::HashMap,
     ffi::OsStr,
     ops::DerefMut,
     str::FromStr,
-    sync::{Arc, Mutex},
-    time::{Duration, SystemTime},
+    sync::{
+        Arc,
+        Mutex,
+    },
+    time::{
+        Duration,
+        SystemTime,
+    },
 };
 use tokio::runtime::Runtime;
 
