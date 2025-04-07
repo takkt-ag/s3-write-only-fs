@@ -15,10 +15,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::id_generator::IdGenerator;
-use anyhow::{anyhow, Result};
+use anyhow::{
+    anyhow,
+    Result,
+};
 use rusoto_s3::{
-    AbortMultipartUploadRequest, CompleteMultipartUploadRequest, CompletedMultipartUpload,
-    CompletedPart, CreateMultipartUploadRequest, PutObjectRequest, S3Client, UploadPartRequest, S3,
+    AbortMultipartUploadRequest,
+    CompleteMultipartUploadRequest,
+    CompletedMultipartUpload,
+    CompletedPart,
+    CreateMultipartUploadRequest,
+    PutObjectRequest,
+    S3Client,
+    UploadPartRequest,
+    S3,
 };
 use slog_scope::debug;
 use std::sync::Arc;
