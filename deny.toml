@@ -1,0 +1,27 @@
+[licenses]
+confidence-threshold = 0.93
+allow = [
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "MIT",
+    "Unicode-3.0",
+]
+
+[advisories]
+ignore = [
+    { id ="RUSTSEC-2022-0071", reason = "We currently do not have the capacity to migrate to the official AWS SDK" },
+]
+
+[bans]
+wildcards = "deny"
+allow-wildcard-paths = true
+multiple-versions = "warn"
+
+[sources]
+unknown-registry = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+unknown-git = "deny"
+allow-git = [
+    "https://github.com/zargony/fuse-rs/",
+]
