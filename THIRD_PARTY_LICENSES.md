@@ -3241,7 +3241,7 @@ limitations under the License.
 - [cfg-if 1.0.0]( https://github.com/alexcrichton/cfg-if )
 - [core-foundation-sys 0.8.7]( https://github.com/servo/core-foundation-rs )
 - [core-foundation 0.9.4]( https://github.com/servo/core-foundation-rs )
-- [crossbeam-channel 0.5.14]( https://github.com/crossbeam-rs/crossbeam )
+- [crossbeam-channel 0.5.15]( https://github.com/crossbeam-rs/crossbeam )
 - [crossbeam-utils 0.8.21]( https://github.com/crossbeam-rs/crossbeam )
 - [equivalent 1.0.2]( https://github.com/indexmap-rs/equivalent )
 - [errno 0.3.11]( https://github.com/lambda-fairy/rust-errno )
