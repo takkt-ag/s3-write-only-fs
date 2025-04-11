@@ -62,7 +62,7 @@ You can find a full list of these projects and their licenses in [THIRD_PARTY_LI
 
 ### Contribution
 
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in Persevere by you, as defined in the Apache-2.0 license, shall be licensed under the Apache License, Version 2.0, without any additional terms or conditions.
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in s3-write-only-fs by you, as defined in the Apache-2.0 license, shall be licensed under the Apache License, Version 2.0, without any additional terms or conditions.
 
 We require code submitted to be formatted with Rust's default rustfmt formatter (CI will automatically verified if your code is formatted correctly).
 We are using unstable rustfmt formatting rules, which requires running the formatter with a nightly toolchain, which you can do as follows:
@@ -72,7 +72,7 @@ $ rustup toolchain install nightly
 $ cargo +nightly fmt
 ```
 
-(Building and running Persevere itself can and should happen with the stable toolchain.)
+(Building and running s3-write-only-fs itself can and should happen with the stable toolchain.)
 
 Additionally we are also checking whether there are any clippy warnings in your code.
 You can run clippy locally with:

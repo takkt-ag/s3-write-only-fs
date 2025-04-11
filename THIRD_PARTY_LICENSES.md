@@ -3237,11 +3237,11 @@ limitations under the License.
 - [bitflags 1.3.2]( https://github.com/bitflags/bitflags )
 - [bitflags 2.9.0]( https://github.com/bitflags/bitflags )
 - [bumpalo 3.17.0]( https://github.com/fitzgen/bumpalo )
-- [cc 1.2.18]( https://github.com/rust-lang/cc-rs )
+- [cc 1.2.19]( https://github.com/rust-lang/cc-rs )
 - [cfg-if 1.0.0]( https://github.com/alexcrichton/cfg-if )
 - [core-foundation-sys 0.8.7]( https://github.com/servo/core-foundation-rs )
 - [core-foundation 0.9.4]( https://github.com/servo/core-foundation-rs )
-- [crossbeam-channel 0.5.14]( https://github.com/crossbeam-rs/crossbeam )
+- [crossbeam-channel 0.5.15]( https://github.com/crossbeam-rs/crossbeam )
 - [crossbeam-utils 0.8.21]( https://github.com/crossbeam-rs/crossbeam )
 - [equivalent 1.0.2]( https://github.com/indexmap-rs/equivalent )
 - [errno 0.3.11]( https://github.com/lambda-fairy/rust-errno )
@@ -3256,7 +3256,7 @@ limitations under the License.
 - [indexmap 2.9.0]( https://github.com/indexmap-rs/indexmap )
 - [js-sys 0.3.77]( https://github.com/rustwasm/wasm-bindgen/tree/master/crates/js-sys )
 - [lazy_static 1.5.0]( https://github.com/rust-lang-nursery/lazy-static.rs )
-- [linux-raw-sys 0.9.3]( https://github.com/sunfishcode/linux-raw-sys )
+- [linux-raw-sys 0.9.4]( https://github.com/sunfishcode/linux-raw-sys )
 - [lock_api 0.4.12]( https://github.com/Amanieu/parking_lot )
 - [log 0.4.27]( https://github.com/rust-lang/log )
 - [num-traits 0.2.19]( https://github.com/rust-num/num-traits )
@@ -4785,7 +4785,7 @@ limitations under the License.
 - [dirs-sys-next 0.1.2]( https://github.com/xdg-rs/dirs/tree/master/dirs-sys )
 - [itoa 1.0.15]( https://github.com/dtolnay/itoa )
 - [libc 0.2.171]( https://github.com/rust-lang/libc )
-- [miniz_oxide 0.8.7]( https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide )
+- [miniz_oxide 0.8.8]( https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide )
 - [pin-project-lite 0.2.16]( https://github.com/taiki-e/pin-project-lite )
 - [proc-macro2 1.0.94]( https://github.com/dtolnay/proc-macro2 )
 - [quote 1.0.40]( https://github.com/dtolnay/quote )
@@ -5779,7 +5779,7 @@ DEALINGS IN THE SOFTWARE.
 
 #### Used by
 
-- [xml-rs 0.8.25]( https://github.com/kornelski/xml-rs )
+- [xml-rs 0.8.26]( https://github.com/kornelski/xml-rs )
 
 <pre>
 The MIT License (MIT)
