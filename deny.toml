@@ -9,7 +9,8 @@ allow = [
 
 [advisories]
 ignore = [
-    { id ="RUSTSEC-2022-0071", reason = "We currently do not have the capacity to migrate to the official AWS SDK" },
+    { id = "RUSTSEC-2022-0071", reason = "We currently do not have the capacity to migrate to the official AWS SDK" },
+    { id = "RUSTSEC-2025-0069", reason = "No alternative to daemonize available currently" },
 ]
 
 [bans]
