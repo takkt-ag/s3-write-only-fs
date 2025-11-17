@@ -36,7 +36,9 @@ use tokio::runtime::Runtime;
 
 const MULTIPART_MINIMUM_PART_SIZE: usize = 5 * 1024 * 1024;
 
+#[derive(Default)]
 pub(crate) enum Upload {
+    #[default]
     Empty,
     Regular {
         bucket: String,
@@ -51,12 +53,6 @@ pub(crate) enum Upload {
         current_buffer: Vec<u8>,
         parts: Vec<CompletedPart>,
     },
-}
-
-impl Default for Upload {
-    fn default() -> Self {
-        Self::Empty
-    }
 }
 
 impl Upload {
